@@ -1,0 +1,9 @@
+__pycache__/
+.data/
+.vector_cache/
+MNIST/
+.idea/
+*/result
+*/wandb
+*/data
+.vscode

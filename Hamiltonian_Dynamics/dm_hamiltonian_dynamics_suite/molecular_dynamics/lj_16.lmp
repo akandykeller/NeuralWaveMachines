@@ -1,0 +1,188 @@
+# Copyright 2020 DeepMind Technologies Limited.
+#
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+#
+#
+# Simulate a two-dimensional Lennard-Jones fluid at the thermodynamic state
+# T*=0.5 and rho*=0.77. See Smit and Frenkel (1991), J. Chem. Phys. for the
+# vapour-liquid phase diagram of that system (http://doi.org/10.1063/1.460477).
+# Further information on the individual LAMMPS commands in this script can be
+# found on the LAMMPS homepage https://lammps.sandia.gov/doc/Manual.html.
+#
+# Simulation protocol:
+# 1. Equilibrate the system in an NVT run using a Langevin thermostat and
+#    compute the mean energy.
+# 2. Perform a subsequent NVE simulation and measure the mean energy.
+# 3. Scale all particle velocities such that the energy agrees with the mean
+#    value of the NVT run.
+# 4. Perform an NVE production run. The mean temperature sampled during that
+#    run should now be close to the target value.
+#
+# For the 4-particle dataset, please make changes to lines 20, 23 and 26, as
+# suggested in the comments below.
+
+# number of particles to simulate (change to 4 for the 4-particle dataset)
+variable num_particles equal 16
+
+# reference temperature (change to 1.0 for the 4-particle dataset)
+variable temperature_ref equal 0.5
+
+# reference density (change to 0.04 for the 4-particle dataset)
+variable density_ref equal 0.77
+
+# damping coefficient for the Langevin thermostat
+variable temperature_damp equal 0.2
+
+# edge length of the square simulation box
+variable box_length equal exp(ln(${num_particles}/${density_ref})/2.)
+
+# Log to file every timestep.
+variable log_every equal 1
+
+# simulation timestep
+variable timestep equal 0.002
+
+# length of equilibration run
+variable runtime_equilibration equal 10000
+
+# length of production run
+variable runtime_production equal 1000
+
+# number of timesteps for both runs
+variable steps_equilibration equal floor(${runtime_equilibration}/${timestep})
+variable steps_production equal floor(${runtime_production}/${timestep})
+
+# random seed for coordinates, velocities and Langevin thermostat
+variable seed equal 1234
+
+# Initialise coordinates and velocities randomly.
+units lj
+atom_style atomic
+dimension 2
+boundary p p p
+variable box_length_half equal ${box_length}/2.0
+region domain block -${box_length_half} ${box_length_half} &
+                    -${box_length_half} ${box_length_half} &
+                    -0.1 0.1 units box
+create_box 1 domain
+create_atoms 1 random ${num_particles} ${seed} domain
+set type 1 z 0.0
+mass 1 1.0
+velocity all create ${temperature_ref} ${seed}
+
+# Zero out forces, velocities and z-coordinates of particles at every step.
+set type 1 z 0.0
+fix f2d all enforce2d
+
+# Define the interaction potential (pair-style).
+pair_style lj/cut ${box_length_half}
+pair_coeff 1 1 1.0 1.0
+neighbor 0.3 bin
+neigh_modify delay 0
+
+# Perform energy minimisation.
+minimize 1.0e-6 1.0e-8 100 1000
+
+# Perform the equilibration run.
+reset_timestep 0
+compute temperature all temp
+compute kinetic_energy all ke
+compute potential_energy all pe
+variable total_energy equal c_kinetic_energy+c_potential_energy
+
+# Compute the centre-of-mass velocity of the entire simulation box.
+variable vcmx equal "vcm(all,x)"
+variable vcmy equal "vcm(all,y)"
+variable vcmz equal "vcm(all,z)"
+variable vcm2 equal v_vcmx*v_vcmx+v_vcmy*v_vcmy+v_vcmz*v_vcmz
+
+# Apply a thermostat to all particles.
+compute langevin_temp all temp/partial 1 1 0
+fix flangevin all langevin ${temperature_ref} ${temperature_ref} &
+                           ${temperature_damp} ${seed} zero yes
+fix_modify flangevin temp langevin_temp
+
+# Specify the terminal output and frequency.
+thermo_style custom step c_temperature c_langevin_temp c_potential_energy &
+       c_kinetic_energy v_total_energy press v_vcm2
+thermo_modify norm no
+
+thermo 100000
+timestep ${timestep}
+
+# Compute averages for temperature and energy.
+fix fnve all nve
+
+variable sample_size_equilibration equal ${steps_equilibration}/10
+fix fSampleEquilibration all ave/time 10 ${sample_size_equilibration} &
+                         ${steps_equilibration} c_temperature v_total_energy
+run ${steps_equilibration}
+
+variable temperature_nvt_equi  equal $(f_fSampleEquilibration[1])
+variable energy_nvt_equi  equal $(f_fSampleEquilibration[2])
+unfix fSampleEquilibration
+print "Averages for NVT equilibration run:"
+print "Reference temperature = ${temperature_ref}"
+print "<T>_NVT = ${temperature_nvt_equi}"
+print "<E>_NVT = ${energy_nvt_equi}"
+
+# Perform a short NVE simulation to estimate the mean energy.
+unfix flangevin
+reset_timestep 0
+fix fNVEPreAverage all ave/time 10 ${sample_size_equilibration} &
+                   ${steps_equilibration} c_temperature v_total_energy
+run ${steps_equilibration}
+
+variable temperature_nve_pre equal $(f_fNVEPreAverage[1])
+variable energy_nve_pre equal $(f_fNVEPreAverage[2])
+unfix fNVEPreAverage
+print "Averages for short NVE equilibration run:"
+print "INFO: <T>_NVE = ${temperature_nve_pre}"
+print "INFO: <E>_NVE = ${energy_nve_pre}"
+
+# Rescale velocities so that the energy is adjusted to the NVT average. This
+# makes sure that the system will be close to the reference temperature during
+# the production run even in the absence of a thermostat.
+reset_timestep 0
+variable dQ equal ${energy_nvt_equi}-${energy_nve_pre}
+variable dQdt1 equal ${dQ}/100/${timestep}
+fix fHeat all heat 1 ${dQdt1} region domain
+run 100
+unfix fHeat
+
+# Perform a second NVE equilibration run.
+reset_timestep 0
+run ${steps_equilibration}
+
+# Perform the production run.
+reset_timestep  0
+
+variable sample_size_production equal ${steps_production}/10
+fix fSampleProduction all ave/time 10 ${sample_size_production} &
+                      ${steps_production} c_temperature v_total_energy
+
+dump 1 all custom ${log_every} /tmp/trajectory_file.dat id type x y vx vy fx fy
+dump_modify 1 sort id
+fix 2 all ave/time ${log_every} 1 ${log_every} c_temperature c_kinetic_energy &
+          c_potential_energy v_total_energy file /tmp/observable_file.dat
+run ${steps_production}
+
+variable temperature_prod  equal $(f_fSampleProduction[1])
+variable energy_prod  equal $(f_fSampleProduction[2])
+unfix fSampleProduction
+
+print "Averages for NVE production run:"
+print "<T>_NVE = = ${temperature_prod}"
+print "<E>_NVE = = ${energy_prod}"

@@ -1,0 +1,16 @@
+name: tvae
+channels:
+  - defaults
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.6
+  - kornia
+  - torchvision
+  - scikit-learn
+  - matplotlib
+  - wandb
+  - monai
+  - seaborn
+  - tqdm
+  - moviepy
