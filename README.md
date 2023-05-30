@@ -10,7 +10,7 @@ This repository contains all code necessary to reproduce the experiments in the 
 This repository is orginzed into three core directories: 
 - Rotating_MNIST, containing a modification of the original [Topographic VAE library](https://github.com/akandykeller/TopographicVAE) necessary to reproduce the results in Figures 1, 3, 4, & 5. 
 - Hamiltonian_Dynamics, containing a modification of [the original Hamiltonian Neural Networks code](https://github.com/deepmind/deepmind-research/tree/master/physics_inspired_models) necessary to reproduce the results in Table 1 and Figure 2 pertaining to modeling simple physical dynamics.
-- Sequence_Modeling, containing a modification of [the original Coupled Oscillatory Recurrent Neural Network code]([coRNN Github](https://github.com/tk-rusch/coRNN) necessary to reproduce the sequence modeling results on sequential MNIST, permuted sequential MNIST, IMDB sentiment classification, and the long sequence addition task shown in Tables 2 & 4.
+- Sequence_Modeling, containing a modification of [the original Coupled Oscillatory Recurrent Neural Network code](https://github.com/tk-rusch/coRNN) necessary to reproduce the sequence modeling results on sequential MNIST, permuted sequential MNIST, IMDB sentiment classification, and the long sequence addition task shown in Tables 2 & 4.
 
 Since the code is built as a modification of each of these three directories individually, we recommend separate environments and installation for each following their respective guidelines. 
 
